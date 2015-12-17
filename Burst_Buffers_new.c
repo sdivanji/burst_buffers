@@ -135,20 +135,17 @@ static tw_stime ns_to_s(tw_stime ns);
  * 		   lp LP
  */
 void node_lp_init(node_state * ns, tw_lp * lp) {
-
+        //convert bb capacity to bytes throughput to bytes/sec and latency to sec
 	burst_buffer_capacity = ((long) (burst_buffer_max_capacity)) * 1000000000;
 	burst_buffer_throughput=burst_buffer_max_throughput*1000000000;
 	burst_buffer_latency=(double)burst_buffer_max_latency/1000000;
 	burst_buffer_local_mu=(pvfs_file_sz/burst_buffer_throughput)+burst_buffer_latency;
-	//burst_buffer_capacity = ((long) (burst_buffer_max_capacity))*10;
-	//printf("Burst Buffer Capacity:%li\n",burst_buffer_capacity);
-
+	
+        //convert disk throughput to bytes and latency to sec
 	disk_latency=(double)disk_max_latency/1000;
 	disk_throughput=(long)disk_max_throughput*1000000;
 	disk_mu=(double)(pvfs_file_sz/disk_throughput)+disk_latency;
 
-
-	//printf("In node_lp_init\n");
 	ns->num_processed = 0;
 	// nodes are addressed in their logical id space (0...num_client_nodes-1 and
 	// 0...num_svr_nodes-1, respectively). LPs are computed upon use with
@@ -165,9 +162,6 @@ void node_lp_init(node_state * ns, tw_lp * lp) {
 			&& (id_all >= num_svr_nodes + num_client_nodes));
 	ns->is_in_storage=(id_all >=num_svr_nodes+num_client_nodes+num_burst_buffer_nodes);
 
-//	printf("is_in_client=%d\nis_in_svr=%d\nis_in_bb=%d\nis_in_storage=%d\n", ns->is_in_client,
-//			ns->is_in_server, ns->is_in_bb,ns->is_in_storage);
-//	printf("id_all= %d\nnum_client_nodes= %d\n", id_all, num_client_nodes);
 	// send a self kickoff event
 	tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
 	node_msg *m = tw_event_data(e);
@@ -184,27 +178,15 @@ void node_lp_init(node_state * ns, tw_lp * lp) {
 void node_finalize(node_state * ns, tw_lp * lp) {
 	// do some error checking - here, we ensure we got the expected number of
 	// messages
-	//printf("In node_finalize\n");
 	int mult;
 	if (ns->is_in_client) {
 		mult = 1;
 	} else if(ns->is_in_server)	{
 		mult = (num_client_nodes / num_svr_nodes)
 				+ ((num_client_nodes % num_svr_nodes) > ns->id_clust	);
-		//printf("mult is %d\n",mult);
+		
 	}
-	/*
-	else if(ns->is_in_bb)	{
-		mult = (num_client_nodes / num_burst_buffer_nodes)
-				+ ((num_client_nodes % num_burst_buffer_nodes) > ns->id_clust	);
-		//printf("mult is %d\n",mult);
-	}
-	else if(ns->is_in_storage)	{
-		mult = (num_client_nodes / num_storage_nodes)
-				+ ((num_client_nodes % num_storage_nodes) > ns->id_clust	);
-		//printf("mult is %d\n",mult);
-	}
-	*/
+
 	char * node;
 	if(ns->is_in_client) {
 		node="client";
@@ -212,36 +194,17 @@ void node_finalize(node_state * ns, tw_lp * lp) {
 	else if(ns->is_in_server) {
 		node="svr";
 	}
-	/*
-	if(ns->is_in_client || ns->is_in_server) {
-	if (ns->num_processed != num_reqs * mult) {
-		fprintf(stderr, "%s node %d, lp %lu: processed %d (expected %d)\n",
-				node, ns->id_clust, lp->gid,
-				ns->num_processed, num_reqs * mult);
-	}
-	}
-	*/
+	
+        //Calculate time taken by each svr node to process the dataset which is equal to ns->pvfs_ts_remote_write+io_noise
+        //io_noise is a random number between 0 and 5% of ns->pvfs_ts_remote_write
 	if(ns->is_in_server) {
 
 	float io_noise = 0.05 * tw_rand_integer(lp->rng,0,ns->pvfs_ts_remote_write);
 	float time_taken=ns->pvfs_ts_remote_write;
-	//float io_noise = ns->pvfs_ts_remote_write
-	//		* ((float) tw_rand_integer(lp->rng, 0.0, 5.0)) / 100.0;
-
-	/*  printf("--------	Random number : %f	------\n",((float) tw_rand_integer(lp->rng,0.0,100.0))/100.0);
-	 printf("--------	Remote write latecy : %f	-------\n",(float) ns->pvfs_ts_remote_write );
-	 printf("--------	IO Noise : %f	------\n",io_noise);*/
-	//float io_noise_bb = 0.05
-	//		* tw_rand_integer(lp->rng, ns->bb_ts_local_write,
-	//				ns->bb_ts_local_write);
-
+	
 	long rand_idx = 0;
-	//printf("num_svr_nodes is %d\n",num_svr_nodes
-	int dest_id = (lp->gid/2 + rand_idx * 2) % (num_svr_nodes * 2);
-	//int dest_id = (lp->gid + rand_idx * 2) % (num_svr_nodes );
-	//printf("Server %llu time = %f seconds.\n", (unsigned long long) dest_id,
-	//		ns_to_s(tw_now(lp) - ns->start_ts) + io_noise);
-        printf("Server %llu time = %f seconds.\n", (unsigned long long)
+		int dest_id = (lp->gid/2 + rand_idx * 2) % (num_svr_nodes * 2);
+	        printf("Server %llu time = %f seconds.\n", (unsigned long long)
         dest_id, ns_to_s(tw_now(lp)-ns->start_ts)+time_taken+io_noise);
 
 	}
@@ -258,7 +221,7 @@ void node_finalize(node_state * ns, tw_lp * lp) {
  * 		   lp LP
  */
 void compute_node_send_request(node_state * ns, node_msg * m, tw_lp * lp) {
-	//printf("In handle_node_next\n");
+	
 	// we must be in cluster client for this function
 	assert(ns->is_in_client);
 
@@ -269,22 +232,20 @@ void compute_node_send_request(node_state * ns, node_msg * m, tw_lp * lp) {
 	m_fwd.src_node_clust_id = ns->id_clust;
 	// compute the destination in cluster svr to req based on a simple modulo
 	// of the logical indexes
-	//printf("num_svr_nodes is %d\n",num_svr_nodes);
+	
 	m_fwd.dest_node_clust_id = ns->id_clust % num_svr_nodes;
-	//printf("dest_node_clust_id is %d\n",m_fwd.dest_node_clust_id);
+	
 	m_fwd.node_event_type = NODE_RECV_req;
 
 	// compute the dest forwarder index, again using a simple modulo
-	//printf("num_client_forwarders is %d\n",num_client_forwarders);
+	
 	int dest_fwd_id = ns->id_clust % num_client_forwarders;
-	// printf("dest_node_fwd_id is %d\n",dest_fwd_id);
-
+	
 	// as the relative forwarder IDs are with respect to groups, the group
 	// name must be used
 	tw_lpid dest_fwd_lpid = codes_mapping_get_lpid_from_relative(dest_fwd_id,
 			"client_FORWARDERS", "forwarder", NULL, 0);
-	//printf("dest_fwd_lpid is %d\n",(int)dest_fwd_lpid);
-	// as cluster nodes have only one network type (+ annotation), no need to
+		// as cluster nodes have only one network type (+ annotation), no need to
 	// use annotation-specific messaging
 	model_net_event_annotated(net_id_client, "client", "req", dest_fwd_lpid,
 			payload_sz, 0.0, sizeof(m_fwd), &m_fwd, 0, NULL, lp);
@@ -300,10 +261,9 @@ void burst_buffer_send_ack(node_state * ns, node_msg * m, tw_lp * lp) {
 
 	//Make sure we are in burst buffer cluster
 
-	//printf("In Burst Buffer send ACK\n");
+	
 	// check that we received the msg from the expected source
 	assert(ns->is_in_bb);
-	//printf("m->id_clust_src %d num_burst_buffer_nodes %d ns->id_clust %d\n",m->id_clust_src,num_burst_buffer_nodes,ns->id_clust);
 	assert(m->id_clust_src % num_burst_buffer_nodes == ns->id_clust);
 
 	// setup the response message through the forwarder
@@ -311,11 +271,8 @@ void burst_buffer_send_ack(node_state * ns, node_msg * m, tw_lp * lp) {
 	msg_set_header(forwarder_magic, FORWARDER_FWD, lp->gid, &m_fwd.h);
 
 	m_fwd.src_node_clust_id = ns->id_clust;
-	//m_fwd.dest_node_clust_id = (m->id_clust_src % num_burst_buffer_nodes)
-	//		% num_svr_nodes;
-	m_fwd.dest_node_clust_id=m->id_clust_src%num_svr_nodes;
-	//printf("dest_node_clust_id is %d\n",m_fwd.dest_node_clust_id);
-	m_fwd.node_event_type = NODE_RECV_ack;
+		m_fwd.dest_node_clust_id=m->id_clust_src%num_svr_nodes;
+		m_fwd.node_event_type = NODE_RECV_ack;
 
 	// compute the dest forwarder index, again using a simple modulus
 	int dest_fwd_id = ns->id_clust % num_burst_buffer_forwarders;
@@ -324,11 +281,9 @@ void burst_buffer_send_ack(node_state * ns, node_msg * m, tw_lp * lp) {
 	// name must be used
 	tw_lpid dest_fwd_lpid = codes_mapping_get_lpid_from_relative(dest_fwd_id,
 			"bb_FORWARDERS", "forwarder", NULL, 0);
-	//ns->bb_cur_capacity -= pvfs_file_sz;
-	model_net_event_annotated(net_id_svr, "bb", "ack", dest_fwd_lpid,
+		model_net_event_annotated(net_id_svr, "bb", "ack", dest_fwd_lpid,
 			pvfs_file_sz, 0.0, sizeof(m_fwd), &m_fwd, 0, NULL, lp);
-	//ns->num_processed++;
-}
+	}
 
 /**
  * Storage Node send ACK (read operation) to Burst Buffer
@@ -337,21 +292,16 @@ void burst_buffer_send_ack(node_state * ns, node_msg * m, tw_lp * lp) {
  * 		   lp LP
  */
 void storage_node_send_ack(node_state * ns, node_msg * m, tw_lp * lp) {
-	//Sughosh-Do Nothing.
-
-	//printf("In Storage Node send ACK\n");
-
+	
+	
 	assert(ns->is_in_storage);
 	// check that we received the msg from the expected source
-        //assert(m->id_clust_src % num_storage_nodes == ns->id_clust);
-
+        
 	// setup the response message through the forwarder
 	forwarder_msg m_fwd;
 	msg_set_header(forwarder_magic, FORWARDER_FWD, lp->gid, &m_fwd.h);
 
 	m_fwd.src_node_clust_id = ns->id_clust;
-	//m_fwd.dest_node_clust_id = (m->id_clust_src % num_storage_nodes)
-	//		% num_burst_buffer_nodes;
 	m_fwd.dest_node_clust_id = num_storage_processed % num_svr_nodes;
 	m_fwd.node_event_type = NODE_RECV_ack;
 
@@ -364,7 +314,7 @@ void storage_node_send_ack(node_state * ns, node_msg * m, tw_lp * lp) {
 			"storage_FORWARDERS", "forwarder", NULL, 0);
 	model_net_event_annotated(net_id_svr, "str", "ack", dest_fwd_lpid,
 			pvfs_file_sz, 0.0, sizeof(m_fwd), &m_fwd, 0, NULL, lp);
-	//ns->num_processed++;
+	
 	num_storage_processed++;
 
 }
@@ -377,9 +327,7 @@ void storage_node_send_ack(node_state * ns, node_msg * m, tw_lp * lp) {
  * 		   lp LP
  */
 void io_node_send_request(node_state * ns, node_msg * m, tw_lp * lp) {
-	//printf("In Server send REQ\n");
-	// check that we received the msg from the expected source
-	// printf("In handle_node_recv_req num_svr_nodes is %d\n",num_svr_nodes);
+		// check that we received the msg from the expected source
 	assert(ns->is_in_server);
 	assert(m->id_clust_src % num_svr_nodes == ns->id_clust);
 
@@ -393,28 +341,25 @@ void io_node_send_request(node_state * ns, node_msg * m, tw_lp * lp) {
 	msg_set_header(forwarder_magic, FORWARDER_FWD, lp->gid, &m_fwd.h);
 
 	m_fwd.src_node_clust_id = ns->id_clust;
-	//m_fwd.dest_node_clust_id = (m->id_clust_src % num_svr_nodes)
-	//		% num_burst_buffer_nodes;
-	m_fwd.dest_node_clust_id = m->id_clust_src % num_burst_buffer_nodes;
-	//m_fwd.dest_node_clust_id = m->id_clust_src;
-
-	//Sughosh-Change msg type to IO_NODE_RECV_req
+		m_fwd.dest_node_clust_id = m->id_clust_src % num_burst_buffer_nodes;
+	
+	//Change msg type to IO_NODE_RECV_req
 	m_fwd.node_event_type = NODE_RECV_req;			//TO CHANGE WITH BB
 
-	//m_fwd.node_event_type = NODE_RECV_ack;
-
+	
 	// compute the dest forwarder index, again using a simple modulus
-	//int dest_fwd_id = ns->id_clust % num_burst_buffer_forwarders;
-	int dest_fwd_id = ns->id_clust % num_svr_forwarders;
+		int dest_fwd_id = ns->id_clust % num_svr_forwarders;
 
 	tw_lpid dest_fwd_lpid = codes_mapping_get_lpid_from_relative(dest_fwd_id,
 			"svr_FORWARDERS", "forwarder", NULL, 0);
-	ns->pvfs_ts_remote_write +=burst_buffer_local_mu;
+        //Time taken is calculated based on BB throughput and latency	
+        ns->pvfs_ts_remote_write +=burst_buffer_local_mu;
 	model_net_event_annotated(net_id_svr, "svr", "req", dest_fwd_lpid,
 			pvfs_file_sz, 0.0, sizeof(m_fwd), &m_fwd, 0, NULL, lp);
-	//ns->num_processed++;
-	ns->bb_cur_capacity+=pvfs_file_sz;
+        //Increment BB size by the chunk size		
+        ns->bb_cur_capacity+=pvfs_file_sz;
 	}
+//BB is full write to disk 
 	else {
 		dflag=1;
 		// setup the response message through the forwarder
@@ -422,26 +367,22 @@ void io_node_send_request(node_state * ns, node_msg * m, tw_lp * lp) {
 		msg_set_header(forwarder_magic, FORWARDER_FWD, lp->gid, &m_fwd.h);
 
 		m_fwd.src_node_clust_id = ns->id_clust;
-		//m_fwd.dest_node_clust_id = (m->id_clust_src % num_svr_nodes)
-		//		% num_burst_buffer_nodes;
-		m_fwd.dest_node_clust_id = m->id_clust_src % num_storage_nodes;
-		//m_fwd.dest_node_clust_id = m->id_clust_src;
-
-		//Sughosh-Change msg type to IO_NODE_RECV_req
+				m_fwd.dest_node_clust_id = m->id_clust_src % num_storage_nodes;
+		
+		//Change msg type to IO_NODE_RECV_req
 		m_fwd.node_event_type = NODE_RECV_req;			//TO CHANGE WITH BB
 
-		//m_fwd.node_event_type = NODE_RECV_ack;
-
+		
 		// compute the dest forwarder index, again using a simple modulus
-		//int dest_fwd_id = ns->id_clust % num_burst_buffer_forwarders;
 		int dest_fwd_id = ns->id_clust % num_svr_forwarders;
 
 		tw_lpid dest_fwd_lpid = codes_mapping_get_lpid_from_relative(dest_fwd_id,
 				"svr_FORWARDERS", "forwarder", NULL, 0);
+                //Time taken is calculated based on disk throughput and latency
 		ns->pvfs_ts_remote_write +=disk_mu;
 		model_net_event_annotated(net_id_svr, "svr", "req", dest_fwd_lpid,
 				pvfs_file_sz, 0.0, sizeof(m_fwd), &m_fwd, 0, NULL, lp);
-		//ns->num_processed++;
+		
 	}
 	}
 
@@ -454,16 +395,13 @@ void io_node_send_request(node_state * ns, node_msg * m, tw_lp * lp) {
  * 		   lp LP
  */
 void io_node_send_ack(node_state * ns, node_msg * m, tw_lp * lp) {
-	//printf("In Server send ACK\n");
-	// setup the response message through the forwarder
+		// setup the response message through the forwarder
 	forwarder_msg m_fwd;
 	msg_set_header(forwarder_magic, FORWARDER_FWD, lp->gid, &m_fwd.h);
 	m_fwd.src_node_clust_id = ns->id_clust;
-	//m_fwd.dest_node_clust_id = ns->id_clust % num_client_nodes;
-	//m_fwd.dest_node_clust_id = ns->num_processed % num_client_nodes;
+	
 	m_fwd.dest_node_clust_id = num_processed_svr% num_client_nodes;
-	//m_fwd.dest_node_clust_id = m->id_clust_src % num_client_nodes;
-	m_fwd.node_event_type = NODE_RECV_ack;
+		m_fwd.node_event_type = NODE_RECV_ack;
 	// compute the dest forwarder index, again using a simple modulus
 	int dest_fwd_id = ns->id_clust % num_svr_forwarders;
 
@@ -471,8 +409,7 @@ void io_node_send_ack(node_state * ns, node_msg * m, tw_lp * lp) {
 	// name must be used
 	tw_lpid dest_fwd_lpid = codes_mapping_get_lpid_from_relative(dest_fwd_id,
 			"svr_FORWARDERS", "forwarder", NULL, 0);
-	//ns->pvfs_ts_remote_write += pvfs_tp_write_local_mu;
-	model_net_event_annotated(net_id_svr, "svr", "ack", dest_fwd_lpid,
+		model_net_event_annotated(net_id_svr, "svr", "ack", dest_fwd_lpid,
 			payload_sz, 0.0, sizeof(m_fwd), &m_fwd, 0, NULL, lp);
 	ns->num_processed++;
 	num_processed_svr++;
@@ -488,8 +425,7 @@ void handle_node_next(node_state * ns, node_msg * m, tw_lp * lp) {
 
 
 void handle_node_recv_req(node_state * ns, node_msg * m, tw_lp * lp) {
-	//printf("In handle_recv_req\n");
-	// we must be in cluster svr to receive reqs
+		// we must be in cluster svr to receive reqs
 	assert(!ns->is_in_client);
 
 	if (ns->is_in_bb) {								//is in Burst_buffer
@@ -500,39 +436,28 @@ void handle_node_recv_req(node_state * ns, node_msg * m, tw_lp * lp) {
 		storage_node_send_ack(ns, m, lp);
 	}
 
-	//ns->num_processed++;
-}
+	}
 
 
 void handle_node_recv_ack(node_state * ns, node_msg * m, tw_lp * lp) {
-	//printf("In handle_recv_ack\n");
-	// we must be in cluster client
-	//assert(ns->id_clust < num_client_nodes);
-	if (ns->is_in_client) {  								// in client cluster
-		//printf("In Client receive ACK\n");
-		// simply process the next message
+		// we must be in cluster client
+		if (ns->is_in_client) {  								// in client cluster
+				// simply process the next message
 		ns->num_processed++;
 		num_processed_client++;
 		if (ns->num_processed < num_reqs) {
 			handle_node_next(ns, m, lp);
 		}
-		//ns->num_processed++;
-
+		
 	} else if (ns->is_in_server) {							// in svr cluster
-		//printf("In Server receive ACK\n");
-		//ns->num_processed++;
-		//if(ns->num_processed < num_reqs) {
-			io_node_send_ack(ns,m,lp);
-			//io_node_send_request(ns,m,lp);
-		//}
-
+				io_node_send_ack(ns,m,lp);
+			
 	}
 	}
 
 
 void node_event_handler(node_state * ns, tw_bf * b, node_msg * m, tw_lp * lp) {
-	//printf("In node_event_handler\n");
-	assert(m->h.magic == node_magic);
+		assert(m->h.magic == node_magic);
 
 	switch (m->h.event_type) {
 	case NODE_KICKOFF:
@@ -559,8 +484,7 @@ static tw_lptype node_lp = { (init_f) node_lp_init, (pre_run_f) NULL,
 		(map_f) codes_mapping, sizeof(node_state), };
 
 void node_register() {
-	//printf("In node_register\n");
-	uint32_t h1 = 0, h2 = 0;
+		uint32_t h1 = 0, h2 = 0;
 
 	bj_hashlittle2("node", strlen("node"), &h1, &h2);
 	node_magic = h1 + h2;
@@ -571,8 +495,7 @@ void node_register() {
 /*** Forwarder LP ***/
 
 void forwarder_lp_init(forwarder_state * ns, tw_lp * lp) {
-	//printf("I node_forwarder_lp_init\n");
-	// like nodes, forwarders in this example are addressed logically
+		// like nodes, forwarders in this example are addressed logically
 	ns->id = codes_mapping_get_lp_relative_id(lp->gid, 1, 0);
 	int id_all = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
 	ns->is_in_client = (id_all < num_client_forwarders);
@@ -585,30 +508,25 @@ void forwarder_lp_init(forwarder_state * ns, tw_lp * lp) {
 }
 
 void forwarder_finalize(forwarder_state * ns, tw_lp * lp) {
-	// printf("In forwarder_finalize\n");
-	// nothing to see here
+		// nothing to see here
 }
 
 void handle_forwarder_fwd(forwarder_state * ns, forwarder_msg * m, tw_lp * lp) {
-	// printf("In handle_forwarder_fwd\n");
-	// compute the forwarder lpid to forward to
+		// compute the forwarder lpid to forward to
 	int mod;
 	const char * dest_group;
 	char * category;
 	if (ns->is_in_client) {
-		//printf("Test Client forwarder \n");
-		mod = num_svr_forwarders;
+			mod = num_svr_forwarders;
 		dest_group = "svr_FORWARDERS";
 		category = "req";
 	} else if (ns->is_in_server) {
 		if (m->node_event_type == NODE_RECV_ack) {
-			//printf("Test Server forwarder ACK\n");
-			mod = num_client_forwarders;
+				mod = num_client_forwarders;
 			dest_group = "client_FORWARDERS";
 			category = "ack";
 		} else if (m->node_event_type == NODE_RECV_req) {
-			//printf("Test Server forwarder REQ\n");
-			if(!dflag) {
+				if(!dflag) {
 				mod = num_burst_buffer_forwarders;
 				dest_group = "bb_FORWARDERS";
 			}
@@ -621,26 +539,22 @@ void handle_forwarder_fwd(forwarder_state * ns, forwarder_msg * m, tw_lp * lp) {
 		}
 	} else if (ns->is_in_bb) {
 		if (m->node_event_type == NODE_RECV_ack) {
-			//printf("Test Burst Buffer forwarder ACK\n");
-			mod = num_svr_forwarders;
+				mod = num_svr_forwarders;
 			dest_group = "svr_FORWARDERS";
 			category = "ack";
 		} else if (m->node_event_type == NODE_RECV_req) {
-			//printf("Test Burst Buffer forwarder REQ\n");
-			mod = num_storage_forwarders;
+				mod = num_storage_forwarders;
 			dest_group = "storage_FORWARDERS";
 			category = "req";
 		}
 	} else {
-		//printf("Test Storage forwarder ACK\n");
-		mod = num_svr_forwarders;
+			mod = num_svr_forwarders;
 		dest_group = "svr_FORWARDERS";
 		category = "ack";
 	}
 
 	// compute the ROSS id corresponding to the dest forwarder
-	//printf("mod is %d\n",mod);
-	tw_lpid dest_lpid = codes_mapping_get_lpid_from_relative(ns->id % mod,
+		tw_lpid dest_lpid = codes_mapping_get_lpid_from_relative(ns->id % mod,
 			dest_group, "forwarder", NULL, 0);
 
 	forwarder_msg m_fwd = *m;
@@ -655,8 +569,7 @@ void handle_forwarder_fwd(forwarder_state * ns, forwarder_msg * m, tw_lp * lp) {
 }
 
 void handle_forwarder_recv(forwarder_state * ns, forwarder_msg * m, tw_lp * lp) {
-	//printf("In handle_forwarder_recv\n");
-	// compute the node to relay the message to
+		// compute the node to relay the message to
 	const char * dest_group;
 	const char * annotation;
 	char * category;
@@ -715,8 +628,7 @@ void handle_forwarder_recv(forwarder_state * ns, forwarder_msg * m, tw_lp * lp) 
 
 void forwarder_event_handler(forwarder_state * ns, tw_bf * b, forwarder_msg * m,
 		tw_lp * lp) {
-	//printf("In forwarder_event_handler\n");
-	assert(m->h.magic == forwarder_magic);
+		assert(m->h.magic == forwarder_magic);
 
 	switch (m->h.event_type) {
 	case FORWARDER_FWD:
@@ -736,8 +648,7 @@ static tw_lptype forwarder_lp = { (init_f) forwarder_lp_init, (pre_run_f) NULL,
 		sizeof(forwarder_state), };
 
 void forwarder_register() {
-	// printf("In forwarder_register\n");
-	uint32_t h1 = 0, h2 = 0;
+		uint32_t h1 = 0, h2 = 0;
 
 	bj_hashlittle2("forwarder", strlen("forwarder"), &h1, &h2);
 	forwarder_magic = h1 + h2;
@@ -759,18 +670,15 @@ TWOPT_CHAR("codes-config", conf_file_name, "name of codes configuration file"),
 TWOPT_END() };
 
 static tw_stime s_to_ns(tw_stime ns) {
-	//printf("in s_to_ns\n");
-	return (ns * (1000.0 * 1000.0 * 1000.0));
+		return (ns * (1000.0 * 1000.0 * 1000.0));
 }
 
 static tw_stime ns_to_s(tw_stime ns) {
-	//printf("In ns_to_s\n");
-	return (ns / (1000.0 * 1000.0 * 1000.0));
+		return (ns / (1000.0 * 1000.0 * 1000.0));
 }
 
 int main(int argc, char *argv[]) {
-	//printf("In main\n");
-	g_tw_ts_end = s_to_ns(60 * 60 * 24 * 365); /* one year, in nsecs */
+		g_tw_ts_end = s_to_ns(60 * 60 * 24 * 365); /* one year, in nsecs */
 
 	/* ROSS initialization function calls */
 	tw_opt_add(app_opt); /* add user-defined args */

@@ -13,4 +13,4 @@ then
 fi
 echo $SYNC
 
-mpirun -np $NP ./Burst_Buffers_new --sync=$SYNC --codes-config=pvfs_dragonfly.conf
+mpirun -np $NP ./Burst_Buffers_new --sync=$SYNC --codes-config=pvfs_torus_3d.conf
